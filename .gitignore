@@ -1,0 +1,21 @@
+# python
+__pycache__
+*.pyc
+.venv/
+venv/
+.env
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Outputs / temp
+output*/
+dist/
+build/
+*.log
+
+# Other
+input.mp4
+prompt.txt
