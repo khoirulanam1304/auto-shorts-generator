@@ -29,7 +29,8 @@ python shorts_layout_tool.py ^
   --replying-to "@market2143" ^
   --style-filter cinematic ^
   --mirror-mode live ^
-  --comment-theme dark
+  --comment-theme dark ^
+  --layout-preset balanced
 ```
 
 ## Opsi Penting
@@ -40,3 +41,4 @@ python shorts_layout_tool.py ^
 - `--style-filter` filter panel video: `none|cinematic|vivid|cool|warm` (default `cinematic`)
 - `--mirror-mode` mirror horizontal: `none|live|both` (default `live`)
 - `--comment-theme` tema kotak komentar: `light|dark` (default `light`)
+- `--layout-preset` preset tata letak: `compact|balanced|cinema` (default `balanced`)

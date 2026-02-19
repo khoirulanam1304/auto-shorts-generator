@@ -259,6 +259,42 @@ def build_effect_filter(style_filter, mirror):
     return ",".join(filters) if filters else "null"
 
 
+def get_layout_preset(layout_preset):
+    presets = {
+        "compact": {
+            "live_w": 520,
+            "live_h": 860,
+            "top_y": 70,
+            "left_x": 20,
+            "right_x": 540,
+            "hook_gap": 18,
+            "comment_gap_1": 24,
+            "comment_gap_2": 16,
+        },
+        "balanced": {
+            "live_w": 540,
+            "live_h": 960,
+            "top_y": 80,
+            "left_x": 20,
+            "right_x": 520,
+            "hook_gap": 20,
+            "comment_gap_1": 30,
+            "comment_gap_2": 20,
+        },
+        "cinema": {
+            "live_w": 550,
+            "live_h": 1020,
+            "top_y": 52,
+            "left_x": 10,
+            "right_x": 520,
+            "hook_gap": 14,
+            "comment_gap_1": 18,
+            "comment_gap_2": 14,
+        },
+    }
+    return presets[layout_preset]
+
+
 def render_video(
     input_video,
     output_video,
@@ -270,15 +306,17 @@ def render_video(
     preset,
     style_filter,
     mirror_mode,
+    layout_preset,
 ):
-    live_w = 540
-    live_h = 960
-    top_y = 80
-    left_x = 20
-    right_x = 520
-    hook_y = top_y + live_h + 20
-    comment1_y = hook_y + 260 + 30
-    comment2_y = comment1_y + 250 + 20
+    layout = get_layout_preset(layout_preset)
+    live_w = layout["live_w"]
+    live_h = layout["live_h"]
+    top_y = layout["top_y"]
+    left_x = layout["left_x"]
+    right_x = layout["right_x"]
+    hook_y = top_y + live_h + layout["hook_gap"]
+    comment1_y = hook_y + 260 + layout["comment_gap_1"]
+    comment2_y = comment1_y + 250 + layout["comment_gap_2"]
     live_effect = build_effect_filter(style_filter, mirror_mode in {"live", "both"})
     freeze_effect = build_effect_filter(style_filter, mirror_mode == "both")
 
@@ -367,6 +405,12 @@ def parse_args():
         choices=["light", "dark"],
         help="Tema kotak komentar",
     )
+    parser.add_argument(
+        "--layout-preset",
+        default="balanced",
+        choices=["compact", "balanced", "cinema"],
+        help="Preset ukuran dan jarak layout panel",
+    )
     return parser.parse_args()
 
 
@@ -419,6 +463,7 @@ def main():
             preset=args.preset,
             style_filter=args.style_filter,
             mirror_mode=args.mirror_mode,
+            layout_preset=args.layout_preset,
         )
 
     print(f"Selesai. Output: {output_video}")
