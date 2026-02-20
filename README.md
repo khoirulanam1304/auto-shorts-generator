@@ -30,7 +30,9 @@ python shorts_layout_tool.py ^
   --style-filter cinematic ^
   --mirror-mode live ^
   --comment-theme dark ^
-  --layout-preset balanced
+  --layout-preset balanced ^
+  --motion-level subtle ^
+  --entry-animation slide
 ```
 
 ## Opsi Penting
@@ -42,3 +44,8 @@ python shorts_layout_tool.py ^
 - `--mirror-mode` mirror horizontal: `none|live|both` (default `live`)
 - `--comment-theme` tema kotak komentar: `light|dark` (default `light`)
 - `--layout-preset` preset tata letak: `compact|balanced|cinema` (default `balanced`)
+- `--motion-level` gerak panel: `none|subtle|dynamic` (default `subtle`)
+- `--entry-animation` animasi masuk: `none|slide` (default `slide`)
+- `--anim-start` detik mulai animasi (default `0.15`)
+- `--anim-step` jeda antar panel animasi (default `0.28`)
+- `--anim-duration` durasi animasi per panel (default `0.34`)

@@ -295,6 +295,49 @@ def get_layout_preset(layout_preset):
     return presets[layout_preset]
 
 
+def get_motion_profile(motion_level):
+    if motion_level == "dynamic":
+        return {
+            "live_pad_w": 54,
+            "live_pad_h": 58,
+            "live_amp_x": 18,
+            "live_amp_y": 14,
+            "live_freq_x": 1.05,
+            "live_freq_y": 0.88,
+            "freeze_pad_w": 42,
+            "freeze_pad_h": 48,
+            "freeze_amp_x": 10,
+            "freeze_amp_y": 8,
+            "freeze_freq_x": 0.62,
+            "freeze_freq_y": 0.50,
+        }
+    if motion_level == "subtle":
+        return {
+            "live_pad_w": 32,
+            "live_pad_h": 36,
+            "live_amp_x": 10,
+            "live_amp_y": 7,
+            "live_freq_x": 0.90,
+            "live_freq_y": 0.72,
+            "freeze_pad_w": 26,
+            "freeze_pad_h": 30,
+            "freeze_amp_x": 5,
+            "freeze_amp_y": 4,
+            "freeze_freq_x": 0.48,
+            "freeze_freq_y": 0.40,
+        }
+    return None
+
+
+def build_slide_x_expr(final_x, start_t, duration, start_from_left=True):
+    offscreen_x = -1200 if start_from_left else 1300
+    end_t = start_t + duration
+    return (
+        f"if(lt(t,{start_t:.3f}),{offscreen_x},"
+        f"if(lt(t,{end_t:.3f}),{offscreen_x}+({final_x}-({offscreen_x}))*(t-{start_t:.3f})/{duration:.3f},{final_x}))"
+    )
+
+
 def render_video(
     input_video,
     output_video,
@@ -307,6 +350,11 @@ def render_video(
     style_filter,
     mirror_mode,
     layout_preset,
+    motion_level,
+    entry_animation,
+    anim_start,
+    anim_step,
+    anim_duration,
 ):
     layout = get_layout_preset(layout_preset)
     live_w = layout["live_w"]
@@ -319,17 +367,58 @@ def render_video(
     comment2_y = comment1_y + 250 + layout["comment_gap_2"]
     live_effect = build_effect_filter(style_filter, mirror_mode in {"live", "both"})
     freeze_effect = build_effect_filter(style_filter, mirror_mode == "both")
+    motion = get_motion_profile(motion_level)
+
+    if motion:
+        live_scale_w = live_w + motion["live_pad_w"]
+        live_scale_h = live_h + motion["live_pad_h"]
+        live_panel = (
+            f"[0:v]{live_effect},"
+            f"scale={live_scale_w}:{live_scale_h}:force_original_aspect_ratio=increase,"
+            f"crop={live_w}:{live_h}:x='(in_w-out_w)/2+{motion['live_amp_x']}*sin(t*{motion['live_freq_x']})':"
+            f"y='(in_h-out_h)/2+{motion['live_amp_y']}*sin(t*{motion['live_freq_y']})'[live];"
+        )
+
+        freeze_scale_w = live_w + motion["freeze_pad_w"]
+        freeze_scale_h = live_h + motion["freeze_pad_h"]
+        freeze_panel = (
+            f"[1:v]{freeze_effect},"
+            f"scale={freeze_scale_w}:{freeze_scale_h}:force_original_aspect_ratio=increase,"
+            f"crop={live_w}:{live_h}:x='(in_w-out_w)/2+{motion['freeze_amp_x']}*sin(t*{motion['freeze_freq_x']})':"
+            f"y='(in_h-out_h)/2+{motion['freeze_amp_y']}*sin(t*{motion['freeze_freq_y']})'[freeze];"
+        )
+    else:
+        live_panel = (
+            f"[0:v]{live_effect},scale={live_w}:{live_h}:force_original_aspect_ratio=increase,"
+            f"crop={live_w}:{live_h}[live];"
+        )
+        freeze_panel = (
+            f"[1:v]{freeze_effect},scale={live_w}:{live_h}:force_original_aspect_ratio=increase,"
+            f"crop={live_w}:{live_h}[freeze];"
+        )
+
+    if entry_animation == "slide":
+        hook_x_expr = build_slide_x_expr(40, anim_start, anim_duration, start_from_left=True)
+        c1_x_expr = build_slide_x_expr(40, anim_start + anim_step, anim_duration, start_from_left=False)
+        c2_x_expr = build_slide_x_expr(40, anim_start + (anim_step * 2), anim_duration, start_from_left=True)
+        hook_overlay = f"[v2][2:v]overlay=x='{hook_x_expr}':y={hook_y}[v3];"
+        comment1_overlay = f"[v3][3:v]overlay=x='{c1_x_expr}':y={comment1_y}[v4];"
+        comment2_overlay = f"[v4][4:v]overlay=x='{c2_x_expr}':y={comment2_y},format=yuv420p[outv]"
+    else:
+        hook_overlay = f"[v2][2:v]overlay=40:{hook_y}[v3];"
+        comment1_overlay = f"[v3][3:v]overlay=40:{comment1_y}[v4];"
+        comment2_overlay = f"[v4][4:v]overlay=40:{comment2_y},format=yuv420p[outv]"
 
     filter_complex = (
         "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,boxblur=20:8[bg];"
-        f"[0:v]{live_effect},scale={live_w}:{live_h}:force_original_aspect_ratio=increase,crop={live_w}:{live_h}[live];"
-        f"[1:v]{freeze_effect},scale={live_w}:{live_h}:force_original_aspect_ratio=increase,crop={live_w}:{live_h}[freeze];"
-        f"[bg][live]overlay={left_x}:{top_y}[v1];"
-        f"[v1][freeze]overlay={right_x}:{top_y}[v2];"
-        f"[v2][2:v]overlay=40:{hook_y}[v3];"
-        f"[v3][3:v]overlay=40:{comment1_y}[v4];"
-        f"[v4][4:v]overlay=40:{comment2_y},format=yuv420p[outv]"
+        + "crop=1080:1920,boxblur=20:8[bg];"
+        + live_panel
+        + freeze_panel
+        + f"[bg][live]overlay={left_x}:{top_y}[v1];"
+        + f"[v1][freeze]overlay={right_x}:{top_y}[v2];"
+        + hook_overlay
+        + comment1_overlay
+        + comment2_overlay
     )
 
     cmd = [
@@ -411,6 +500,36 @@ def parse_args():
         choices=["compact", "balanced", "cinema"],
         help="Preset ukuran dan jarak layout panel",
     )
+    parser.add_argument(
+        "--motion-level",
+        default="subtle",
+        choices=["none", "subtle", "dynamic"],
+        help="Intensitas gerak panel live/freeze",
+    )
+    parser.add_argument(
+        "--entry-animation",
+        default="slide",
+        choices=["none", "slide"],
+        help="Animasi masuk untuk hook dan komentar",
+    )
+    parser.add_argument(
+        "--anim-start",
+        type=float,
+        default=0.15,
+        help="Detik mulai animasi panel teks",
+    )
+    parser.add_argument(
+        "--anim-step",
+        type=float,
+        default=0.28,
+        help="Jarak waktu antar animasi hook/komentar",
+    )
+    parser.add_argument(
+        "--anim-duration",
+        type=float,
+        default=0.34,
+        help="Durasi tiap animasi masuk",
+    )
     return parser.parse_args()
 
 
@@ -427,6 +546,12 @@ def main():
     duration = probe_duration(input_video)
     if args.freeze_time < 0 or args.freeze_time > max(0.0, duration - 0.05):
         raise ValueError(f"freeze-time harus di antara 0 dan {max(0.0, duration - 0.05):.2f} detik")
+    if args.anim_start < 0:
+        raise ValueError("anim-start tidak boleh negatif")
+    if args.anim_step < 0:
+        raise ValueError("anim-step tidak boleh negatif")
+    if args.anim_duration <= 0:
+        raise ValueError("anim-duration harus lebih dari 0")
 
     with tempfile.TemporaryDirectory(prefix="shorts_layout_") as td:
         td_path = Path(td)
@@ -464,6 +589,11 @@ def main():
             style_filter=args.style_filter,
             mirror_mode=args.mirror_mode,
             layout_preset=args.layout_preset,
+            motion_level=args.motion_level,
+            entry_animation=args.entry_animation,
+            anim_start=args.anim_start,
+            anim_step=args.anim_step,
+            anim_duration=args.anim_duration,
         )
 
     print(f"Selesai. Output: {output_video}")
