@@ -24,6 +24,7 @@ python shorts_layout_tool.py ^
   --input input.mp4 ^
   --output output_hook.mp4 ^
   --hook "Sederhana, tapi gerakannya sulit diabaikan" ^
+  --context-text "Fokus ke timing di detik akhir" ^
   --comment1 "Tenang-tenang, tapi bikin fokus ke satu titik" ^
   --comment2 "Biasa kelihatannya, beda rasanya" ^
   --replying-to "@market2143" ^
@@ -32,7 +33,8 @@ python shorts_layout_tool.py ^
   --comment-theme dark ^
   --layout-preset balanced ^
   --motion-level subtle ^
-  --entry-animation slide
+  --entry-animation slide ^
+  --content-structure meaningful
 ```
 
 ## Opsi Penting
@@ -40,6 +42,7 @@ python shorts_layout_tool.py ^
 - `--font` path font `.ttf` jika mau style teks sendiri
 - `--crf` kualitas output video (default `20`, lebih kecil = lebih bagus)
 - `--preset` kecepatan encode (`ultrafast` sampai `veryslow`)
+- `--context-text` teks konteks kecil untuk value tambahan
 - `--style-filter` filter panel video: `none|cinematic|vivid|cool|warm` (default `cinematic`)
 - `--mirror-mode` mirror horizontal: `none|live|both` (default `live`)
 - `--comment-theme` tema kotak komentar: `light|dark` (default `light`)
@@ -49,3 +52,5 @@ python shorts_layout_tool.py ^
 - `--anim-start` detik mulai animasi (default `0.15`)
 - `--anim-step` jeda antar panel animasi (default `0.28`)
 - `--anim-duration` durasi animasi per panel (default `0.34`)
+- `--content-structure` mode alur konten: `basic|meaningful` (default `basic`)
+- `--target-duration` durasi output target; default full source untuk `basic`, 12 detik untuk `meaningful`

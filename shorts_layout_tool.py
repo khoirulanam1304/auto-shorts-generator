@@ -164,6 +164,21 @@ def create_hook_image(path, hook_text, font_path=None):
     img.save(path)
 
 
+def create_context_image(path, context_text, font_path=None):
+    w, h = 1000, 120
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    if context_text.strip():
+        draw.rounded_rectangle((0, 0, w - 1, h - 1), radius=20, fill=(20, 20, 20, 175))
+        font = pick_font(font_path, 42)
+        lines = wrap_text(draw, context_text, font, w - 70)[:2]
+        y = 18
+        for line in lines:
+            draw.text((35, y), line, font=font, fill=(245, 245, 245, 255))
+            y += 44
+    img.save(path)
+
+
 def create_comment_image(path, text, replying_to="@username", font_path=None, comment_theme="light"):
     w, h = 1000, 250
     theme = get_comment_theme_colors(comment_theme)
@@ -338,11 +353,42 @@ def build_slide_x_expr(final_x, start_t, duration, start_from_left=True):
     )
 
 
+def get_structure_timeline(content_structure, output_duration):
+    if content_structure != "meaningful":
+        return {
+            "hook_end": output_duration,
+            "context_start": 0.0,
+            "comment1_start": 0.0,
+            "comment2_start": 0.0,
+            "focus_start": 0.0,
+            "focus_end": 0.0,
+            "replay_start": 0.0,
+            "replay_end": 0.0,
+        }
+
+    hook_end = min(2.8, output_duration)
+    focus_start = min(6.0, output_duration)
+    focus_end = min(9.0, output_duration)
+    replay_start = min(9.0, output_duration)
+    replay_end = output_duration
+    return {
+        "hook_end": hook_end,
+        "context_start": min(1.0, output_duration),
+        "comment1_start": min(2.2, output_duration),
+        "comment2_start": min(2.8, output_duration),
+        "focus_start": focus_start,
+        "focus_end": focus_end,
+        "replay_start": replay_start,
+        "replay_end": replay_end,
+    }
+
+
 def render_video(
     input_video,
     output_video,
     freeze_img,
     hook_img,
+    context_img,
     comment1_img,
     comment2_img,
     crf,
@@ -355,6 +401,8 @@ def render_video(
     anim_start,
     anim_step,
     anim_duration,
+    content_structure,
+    output_duration,
 ):
     layout = get_layout_preset(layout_preset)
     live_w = layout["live_w"]
@@ -363,11 +411,23 @@ def render_video(
     left_x = layout["left_x"]
     right_x = layout["right_x"]
     hook_y = top_y + live_h + layout["hook_gap"]
+    context_y = hook_y + 270
     comment1_y = hook_y + 260 + layout["comment_gap_1"]
     comment2_y = comment1_y + 250 + layout["comment_gap_2"]
     live_effect = build_effect_filter(style_filter, mirror_mode in {"live", "both"})
     freeze_effect = build_effect_filter(style_filter, mirror_mode == "both")
     motion = get_motion_profile(motion_level)
+    timeline = get_structure_timeline(content_structure, output_duration)
+    if content_structure == "meaningful":
+        # Place context above hook so it stays readable and does not collide with comment cards.
+        context_y = max(40, hook_y - 130)
+
+    if content_structure == "meaningful":
+        # Avoid comma-heavy ffmpeg expressions (if/between) to keep filter parsing stable on Windows shells.
+        focus_gate = f"(gte(t\\,{timeline['focus_start']:.3f})*lt(t\\,{timeline['focus_end']:.3f}))"
+        replay_gate = f"(gte(t\\,{timeline['replay_start']:.3f})*lt(t\\,{timeline['replay_end']:.3f}))"
+        zoom_expr = f"(1+0.10*{focus_gate}+0.05*{replay_gate})"
+        live_effect = f"{live_effect},scale=iw*({zoom_expr}):ih*({zoom_expr}):eval=frame"
 
     if motion:
         live_scale_w = live_w + motion["live_pad_w"]
@@ -397,17 +457,42 @@ def render_video(
             f"crop={live_w}:{live_h}[freeze];"
         )
 
+    hook_enable = "between(t,0,{:.3f})".format(timeline["hook_end"]) if content_structure == "meaningful" else "1"
+    context_enable = (
+        "between(t,{:.3f},{:.3f})".format(timeline["context_start"], output_duration)
+        if content_structure == "meaningful"
+        else "1"
+    )
+    comment1_enable = (
+        "gte(t,{:.3f})".format(timeline["comment1_start"]) if content_structure == "meaningful" else "1"
+    )
+    comment2_enable = (
+        "gte(t,{:.3f})".format(timeline["comment2_start"]) if content_structure == "meaningful" else "1"
+    )
+
     if entry_animation == "slide":
         hook_x_expr = build_slide_x_expr(40, anim_start, anim_duration, start_from_left=True)
         c1_x_expr = build_slide_x_expr(40, anim_start + anim_step, anim_duration, start_from_left=False)
         c2_x_expr = build_slide_x_expr(40, anim_start + (anim_step * 2), anim_duration, start_from_left=True)
-        hook_overlay = f"[v2][2:v]overlay=x='{hook_x_expr}':y={hook_y}[v3];"
-        comment1_overlay = f"[v3][3:v]overlay=x='{c1_x_expr}':y={comment1_y}[v4];"
-        comment2_overlay = f"[v4][4:v]overlay=x='{c2_x_expr}':y={comment2_y},format=yuv420p[outv]"
+        hook_overlay = f"[v2][2:v]overlay=x='{hook_x_expr}':y={hook_y}:enable='{hook_enable}'[v3];"
+        context_overlay = (
+            f"[v3][3:v]overlay=40:{context_y}:enable='{context_enable}'[v35];"
+            if content_structure == "meaningful"
+            else "[v3][3:v]overlay=40:{0}[v35];".format(context_y)
+        )
+        comment1_overlay = f"[v35][4:v]overlay=x='{c1_x_expr}':y={comment1_y}:enable='{comment1_enable}'[v4];"
+        comment2_overlay = (
+            f"[v4][5:v]overlay=x='{c2_x_expr}':y={comment2_y}:enable='{comment2_enable}',format=yuv420p[outv]"
+        )
     else:
-        hook_overlay = f"[v2][2:v]overlay=40:{hook_y}[v3];"
-        comment1_overlay = f"[v3][3:v]overlay=40:{comment1_y}[v4];"
-        comment2_overlay = f"[v4][4:v]overlay=40:{comment2_y},format=yuv420p[outv]"
+        hook_overlay = f"[v2][2:v]overlay=40:{hook_y}:enable='{hook_enable}'[v3];"
+        context_overlay = (
+            f"[v3][3:v]overlay=40:{context_y}:enable='{context_enable}'[v35];"
+            if content_structure == "meaningful"
+            else "[v3][3:v]overlay=40:{0}[v35];".format(context_y)
+        )
+        comment1_overlay = f"[v35][4:v]overlay=40:{comment1_y}:enable='{comment1_enable}'[v4];"
+        comment2_overlay = f"[v4][5:v]overlay=40:{comment2_y}:enable='{comment2_enable}',format=yuv420p[outv]"
 
     filter_complex = (
         "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
@@ -417,6 +502,7 @@ def render_video(
         + f"[bg][live]overlay={left_x}:{top_y}[v1];"
         + f"[v1][freeze]overlay={right_x}:{top_y}[v2];"
         + hook_overlay
+        + context_overlay
         + comment1_overlay
         + comment2_overlay
     )
@@ -434,6 +520,10 @@ def render_video(
         "1",
         "-i",
         str(hook_img),
+        "-loop",
+        "1",
+        "-i",
+        str(context_img),
         "-loop",
         "1",
         "-i",
@@ -457,6 +547,8 @@ def render_video(
         "-c:a",
         "aac",
         "-shortest",
+        "-t",
+        f"{output_duration:.3f}",
         str(output_video),
     ]
     run_cmd(cmd)
@@ -469,6 +561,7 @@ def parse_args():
     parser.add_argument("--input", required=True, help="Path video input")
     parser.add_argument("--output", required=True, help="Path video output")
     parser.add_argument("--hook", required=True, help="Teks hook di panel tengah")
+    parser.add_argument("--context-text", default="", help="Teks konteks singkat agar konten lebih meaningful")
     parser.add_argument("--comment1", required=True, help="Teks komentar box pertama")
     parser.add_argument("--comment2", required=True, help="Teks komentar box kedua")
     parser.add_argument("--replying-to", default="@market2143", help="Handle untuk teks Replying to")
@@ -530,6 +623,18 @@ def parse_args():
         default=0.34,
         help="Durasi tiap animasi masuk",
     )
+    parser.add_argument(
+        "--content-structure",
+        default="basic",
+        choices=["basic", "meaningful"],
+        help="Mode alur konten: basic atau meaningful",
+    )
+    parser.add_argument(
+        "--target-duration",
+        type=float,
+        default=None,
+        help="Durasi output target (detik). Default: full source untuk basic, 12 detik untuk meaningful",
+    )
     return parser.parse_args()
 
 
@@ -552,16 +657,25 @@ def main():
         raise ValueError("anim-step tidak boleh negatif")
     if args.anim_duration <= 0:
         raise ValueError("anim-duration harus lebih dari 0")
+    if args.target_duration is not None and args.target_duration <= 0:
+        raise ValueError("target-duration harus lebih dari 0 jika diisi")
+
+    if args.target_duration is None:
+        output_duration = min(duration, 12.0) if args.content_structure == "meaningful" else duration
+    else:
+        output_duration = min(duration, args.target_duration)
 
     with tempfile.TemporaryDirectory(prefix="shorts_layout_") as td:
         td_path = Path(td)
         freeze_img = td_path / "freeze.jpg"
         hook_img = td_path / "hook.png"
+        context_img = td_path / "context.png"
         comment1_img = td_path / "comment1.png"
         comment2_img = td_path / "comment2.png"
 
         extract_freeze_frame(input_video, freeze_img, args.freeze_time)
         create_hook_image(hook_img, args.hook, font_path=args.font)
+        create_context_image(context_img, args.context_text, font_path=args.font)
         create_comment_image(
             comment1_img,
             args.comment1,
@@ -582,6 +696,7 @@ def main():
             output_video=output_video,
             freeze_img=freeze_img,
             hook_img=hook_img,
+            context_img=context_img,
             comment1_img=comment1_img,
             comment2_img=comment2_img,
             crf=args.crf,
@@ -594,6 +709,8 @@ def main():
             anim_start=args.anim_start,
             anim_step=args.anim_step,
             anim_duration=args.anim_duration,
+            content_structure=args.content_structure,
+            output_duration=output_duration,
         )
 
     print(f"Selesai. Output: {output_video}")
